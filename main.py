@@ -240,6 +240,10 @@ def health():
     return {"status": "ok", "tables": len(tables), "nodes": G.number_of_nodes()}
 
 
+@app.get("/")
+def root():
+    return {"message": "SAP O2C Graph API is running 🚀"}
+
 # **Ctrl+S** save karo.
 
 # ---
