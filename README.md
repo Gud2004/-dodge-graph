@@ -1,55 +1,232 @@
-# SAP Order-to-Cash Graph System
+# SAP Order-to-Cash Graph Explorer
 
-A context graph system with LLM-powered natural language query interface built for the Dodge AI FDE Assignment.
+> "Business data tells a story — this system lets you read it."
+
+A graph-based exploration and natural language query system for SAP O2C data.
+Built from scratch in 3 days as part of the Dodge AI FDE Assessment.
 
 ## Live Demo
-🔗 Frontend: [https://dodge-graph-ten.vercel.app](https://dodge-graph-ten.vercel.app)
-🔗 Backend API: [https://dodge-graph-msi1.onrender.com](https://dodge-graph-msi1.onrender.com)
+🔗 App: [https://dodge-graph-ten.vercel.app](https://dodge-graph-ten.vercel.app)
+⚡ API: [https://dodge-graph-msi1.onrender.com](https://dodge-graph-msi1.onrender.com)
+
+---
+
+## The Problem I Was Solving
+
+SAP O2C data lives in 19 disconnected JSONL files. A business analyst
+looking at this data cannot easily answer:
+- "Which sales orders were delivered but never billed?"
+- "What is the full journey of billing document X?"
+- "Which products generate the most billing activity?"
+
+This system solves that — by unifying fragmented data into a graph and
+letting anyone query it in plain English.
+
+---
 
 ## Architecture
-- **Backend**: FastAPI (Python) — REST API serving graph data and LLM queries
-- **Database**: SQLite — lightweight, file-based, perfect for structured relational queries
-- **Graph Engine**: NetworkX — in-memory graph modeling with nodes and edges
-- **LLM**: Groq (llama-3.1-8b-instant) — fast free-tier LLM for NL→SQL translation
-- **Frontend**: React + Vite + ReactFlow — interactive graph visualization + chat UI
+```
+┌─────────────────────────────────────────────────────┐
+│              FRONTEND (React + Vite)                 │
+│  ┌─────────────────────┐  ┌────────────────────────┐│
+│  │  Graph Visualization │  │   Chat Interface       ││
+│  │  (ReactFlow)         │  │   (NL Query → Answer)  ││
+│  │  • 498 nodes         │  │   • SQL transparency   ││
+│  │  • 90 edges          │  │   • Guardrail feedback ││
+│  │  • Color-coded types │  │   • Example queries    ││
+│  │  • Click to inspect  │  │                        ││
+│  └─────────────────────┘  └────────────────────────┘│
+└──────────────────┬──────────────────┬───────────────┘
+                   │ /graph           │ /query
+                   ▼                  ▼
+┌─────────────────────────────────────────────────────┐
+│                BACKEND (FastAPI)                     │
+│  ┌──────────────┐   ┌─────────────────────────────┐ │
+│  │ Graph Engine  │   │     LLM Query Pipeline      │ │
+│  │ (NetworkX)    │   │                             │ │
+│  │               │   │  Step 1: GUARDRAIL          │ │
+│  │ • O2C flow    │   │   └→ Keyword whitelist      │ │
+│  │ • Traversal   │   │   └→ Block off-topic        │ │
+│  │               │   │                             │ │
+│  │               │   │  Step 2: NL → SQL           │ │
+│  │               │   │   └→ Schema injection       │ │
+│  │               │   │   └→ Structured output      │ │
+│  │               │   │                             │ │
+│  │               │   │  Step 3: EXECUTE + ANSWER   │ │
+│  │               │   │   └→ SQLite execution       │ │
+│  │               │   │   └→ Natural language reply │ │
+│  └──────┬────────┘   └──────────────┬──────────────┘ │
+│         └──────────────┬────────────┘                 │
+│                        ▼                              │
+│         ┌──────────────────────────────┐              │
+│         │        SQLite Database        │              │
+│         │  15 tables · 3000+ rows      │              │
+│         │  Built from 19 JSONL files   │              │
+│         └──────────────────────────────┘              │
+└─────────────────────────────────────────────────────┘
+                        │
+                        ▼
+              Groq API (llama-3.1-8b-instant)
+              Free tier · 14,400 req/day
+```
 
-## Why These Choices?
-| Component | Choice | Reason |
+---
+
+## What Makes This Different
+
+### 1. I discovered the data format myself
+The dataset had no documentation. Opening the files revealed JSONL format
+with camelCase column names — not the SAP-standard VBELN format I expected.
+I had to inspect each table, map real column names, and rebuild the graph
+model accordingly. This informed every JOIN and edge definition.
+
+### 2. I switched LLM providers mid-build and kept going
+Started with Gemini. Hit quota limits. Switched to Groq.
+The new model (llama3-8b-8192) was deprecated. Switched to llama-3.1-8b-instant.
+Each switch required updating the API format, headers, and response parsing.
+This is what real engineering looks like — adapting when things break.
+
+### 3. Guardrails before LLM — not inside it
+Most implementations ask the LLM to "only answer dataset questions."
+I check BEFORE calling the LLM using a keyword whitelist.
+Off-topic queries never reach the API — zero cost, zero latency, zero risk.
+
+### 4. Graph + SQL together
+NetworkX handles graph structure (nodes, edges, relationships).
+SQLite handles analytical queries (COUNT, GROUP BY, JOIN).
+The LLM generates SQL — the most reliable structured output format.
+This combination gives the best of all three worlds.
+
+---
+
+## Architectural Decisions
+
+### Why SQLite over Neo4j / PostgreSQL?
+
+| Factor | SQLite | Neo4j |
 |---|---|---|
-| Database | SQLite | Zero setup, SQL queries, sufficient for dataset size |
-| Graph | NetworkX | Perfect for in-memory graph ops, no extra infra |
-| LLM | Groq | Free tier, 14k req/day, fast inference |
-| Frontend | ReactFlow | Interactive nodes, expandable, clean UI |
+| Setup | Zero — embedded in app | Separate server required |
+| Query language | SQL — LLM knows it very well | Cypher — less reliable LLM output |
+| Dataset size | Perfect for 3000 rows | Overkill |
+| Deployment | Single file | Complex infrastructure |
+
+For graph traversal, NetworkX handles it in-memory.
+No need for a dedicated graph database at this scale.
+
+### Why Groq over Gemini?
+Gemini free tier hit quota limits during development.
+Groq offers 14,400 requests/day free — more than sufficient.
+llama-3.1-8b-instant is optimized for speed and structured output.
+
+### Why ReactFlow over D3/Cytoscape?
+ReactFlow integrates natively with React state.
+Node click → inspect metadata panel works out of the box.
+Animated edges visually communicate relationships.
+MiniMap helps navigate 498 nodes without getting lost.
+
+---
 
 ## Graph Modeling
-**498 Nodes, 90 Edges** across 9 entity types
 
-Nodes: SalesOrder, SalesOrderItem, DeliveryItem, BillingItem, Customer, Product, Plant, JournalEntry, Payment
+### Nodes — 498 total
 
-Edges:
-- SalesOrder → SalesOrderItem (HAS_ITEM)
-- SalesOrder → DeliveryItem (DELIVERED_VIA)
-- DeliveryItem → BillingItem (BILLED_AS)
-- BillingItem → JournalEntry (POSTED_TO)
+| Entity | Source Table | Key Column |
+|---|---|---|
+| SalesOrder | sales_order_headers | salesOrder |
+| SalesOrderItem | sales_order_items | salesOrder |
+| DeliveryItem | outbound_delivery_items | deliveryDocument |
+| BillingItem | billing_document_items | billingDocument |
+| Customer | business_partners | businessPartner |
+| Product | products | product |
+| Plant | plants | plant |
+| JournalEntry | journal_entry_items_AR | accountingDocument |
+| Payment | payments_accounts_receivable | accountingDocument |
+
+### Edges — 90 total
+
+| Relationship | From → To | Business Meaning |
+|---|---|---|
+| HAS_ITEM | SalesOrder → SalesOrderItem | Order contains line items |
+| DELIVERED_VIA | SalesOrder → DeliveryItem | Order fulfilled by delivery |
+| BILLED_AS | DeliveryItem → BillingItem | Delivery generates invoice |
+| POSTED_TO | BillingItem → JournalEntry | Invoice posted to accounts |
+
+### O2C Flow
+```
+Customer → SalesOrder → SalesOrderItem
+                ↓
+           DeliveryItem
+                ↓
+           BillingItem
+                ↓
+           JournalEntry → Payment
+```
+
+---
 
 ## LLM Prompting Strategy
-1. Guardrail check — keyword matching to reject off-topic queries
-2. Schema injection — full DB schema sent to LLM as context
-3. Structured output — LLM forced to respond in `SQL: ... EXPLANATION: ...` format
-4. SQL execution — query run on SQLite, results returned as JSON
-5. Natural language answer — LLM explanation shown alongside data
+
+### Guardrail (Layer 1 — keyword check, zero LLM cost)
+```
+Allowed: sales, order, delivery, billing, invoice, payment,
+         product, customer, plant, journal, document,
+         count, total, show, list, find, how many, which
+```
+If query matches → pass to LLM
+If query doesn't match → block instantly, return standard message
+
+### NL → SQL (Layer 2 — schema-grounded generation)
+```
+System prompt contains:
+- Every table name and column name
+- Foreign key relationships
+- Output format: SQL: <query> EXPLANATION: <one line>
+
+This eliminates hallucinated table/column names.
+The LLM generates SQL it can actually execute.
+```
+
+### Execute + Answer (Layer 3)
+```
+- SQL runs on SQLite
+- Results returned as JSON (max 20 rows)
+- LLM explanation shown to user
+- Raw SQL visible for transparency
+```
+
+---
 
 ## Guardrails
-- Keyword whitelist: only dataset-related topics allowed
-- Off-topic response: "This system is designed to answer questions related to the provided dataset only."
-- SQL execution wrapped in try/catch to prevent injection
+
+**What I protect against:**
+- General knowledge questions ("capital of France")
+- Creative writing requests ("write a poem")
+- Completely unrelated topics
+
+**How:**
+1. Keyword whitelist check before any LLM call
+2. Standard response for blocked queries
+3. SQL execution in try/catch — errors never crash the app
+4. Results capped at 20 rows
+
+**What gets blocked:**
+- ❌ "Tell me a joke" → Blocked instantly
+- ❌ "What is Python?" → Blocked instantly
+- ✅ "How many sales orders exist?" → Allowed
+- ✅ "Show incomplete deliveries" → Allowed
+
+---
 
 ## Dataset
-- 19 JSONL tables from SAP Order-to-Cash domain
-- 15 tables successfully loaded into SQLite
-- Core tables: sales_order_headers, billing_document_items, outbound_delivery_items, journal_entry_items, payments_accounts_receivable
 
-## Setup Instructions
+- 19 JSONL directories — discovered format by inspection
+- 15 tables loaded successfully into SQLite
+- 4 tables had unsupported data types (list/dict columns) — handled gracefully
+- Column names are camelCase (e.g. salesOrder, soldToParty) — not SAP standard
+
+---
+
+## Setup
 
 ### Backend
 ```bash
@@ -58,12 +235,14 @@ venv\Scripts\activate
 pip install fastapi uvicorn pandas networkx python-multipart openpyxl requests python-dotenv
 ```
 
-Create `.env` file:
+`.env` file:
 ```
 GROQ_API_KEY=your_key_here
 ```
 ```bash
 uvicorn main:app --reload
+# API at http://localhost:8000
+# Docs at http://localhost:8000/docs
 ```
 
 ### Frontend
@@ -71,16 +250,58 @@ uvicorn main:app --reload
 cd frontend
 npm install
 npm run dev
+# UI at http://localhost:5173
 ```
+
+---
 
 ## API Endpoints
-- `GET /graph` — returns all nodes and edges as JSON
-- `POST /query` — accepts natural language question, returns SQL + answer
-- `GET /health` — health check with table and node count
+
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/graph` | All nodes + edges as JSON |
+| POST | `/query` | NL question → SQL + answer |
+| GET | `/health` | Status + table count + node count |
+
+---
 
 ## Example Queries
-- "Which products have the most billing documents?"
-- "Show me incomplete sales orders"
-- "How many deliveries are there?"
-- "Trace billing document flow"
+
+| Question | Tests |
+|---|---|
+| "Which products have the most billing documents?" | Aggregation + JOIN |
+| "Show me incomplete sales orders" | Status filtering |
+| "How many deliveries are there?" | Simple COUNT |
+| "Trace the flow of a billing document" | Relationship traversal |
+| "Tell me a joke" | Guardrail — blocked ✅ |
+
+---
+
+## Project Structure
 ```
+dodge-graph/
+├── main.py              # FastAPI app — /graph, /query, /health
+├── load_data.py         # JSONL ingestion → SQLite + NetworkX graph
+├── .env                 # API keys (gitignored)
+├── frontend/
+│   ├── src/
+│   │   └── App.jsx      # React — graph viz + chat interface
+│   └── package.json
+├── sap-o2c-data/        # 19 JSONL entity directories (gitignored)
+├── claude-session.txt   # AI coding session logs
+└── README.md
+```
+
+---
+
+## Tech Stack
+
+| Layer | Tech | Why |
+|---|---|---|
+| Backend | FastAPI | Async, clean, auto docs |
+| Database | SQLite | Zero setup, SQL, portable |
+| Graph | NetworkX | In-memory, no infra |
+| LLM | Groq llama-3.1-8b-instant | Free, fast, reliable |
+| Frontend | React + Vite | Fast dev, simple build |
+| Graph UI | ReactFlow | Native React, interactive |
+| Deploy | Render + Vercel | Free tier, GitHub integration |
